@@ -8,6 +8,8 @@
 #include <grp.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
+#include <limits.h>
 
 void do_ls(char[]);
 void dostat(DIR *dir_ptr, char *filename);
@@ -15,6 +17,9 @@ void show_file_info(char *, struct stat *);
 void mode_to_letters(int, char[]);
 char *uid_to_name(uid_t);
 char *gid_to_name(gid_t);
+char *filenames[SHRT_MAX + 1];
+
+
 
 // ls -l : main -> do_ls -> dostat -> show_file_info
 int main(int ac, char *av[])
@@ -28,17 +33,26 @@ int main(int ac, char *av[])
         }
 }
 
+int cmp(const void *s1, const void *s2)
+{
+    return strcmp(*(const char **)s1, *(const char **)s2);
+}
+
 void do_ls(char dirname[])
 {
     DIR *dir_ptr;
     struct dirent *direntp;
+    int fileidx = 0;
 
     if ((dir_ptr = opendir(dirname)) == NULL)
         fprintf(stderr, "ls: cannot open %s\n", dirname);
     else
     {
         while ((direntp = readdir(dir_ptr)) != NULL)
-            dostat(dir_ptr, direntp->d_name);
+            filenames[fileidx++] = strdup(direntp->d_name);
+        qsort(filenames, (size_t)(fileidx), sizeof(char *), cmp);
+        for (int i = 0; i < fileidx; i++)
+            dostat(dir_ptr, filenames[i]);
         closedir(dir_ptr);
     }
 }
