@@ -18,34 +18,77 @@ void mode_to_letters(int, char[]);
 char *uid_to_name(uid_t);
 char *gid_to_name(gid_t);
 char *filenames[SHRT_MAX + 1];
+char stack[SHRT_MAX + 1];
+int top = -1;
 
+void push(char *filename)
+{
+    if (top >= SHRT_MAX + 1)
+    {
+        fprintf(stderr, "stack overflow");
+        return;
+    }
+    stack[++top] = filename;
+}
 
+char *pop()
+{
+    if (top < 0)
+    {
+        fprintf(stderr, "stack underflow");
+        return NULL;
+    }
+    return stack[top--];
+}
 
 // ls -l : main -> do_ls -> dostat -> show_file_info
 int main(int ac, char *av[])
 {
+    struct stat finfo;
+    int statrst = 0;
+
     if (ac == 1)
         do_ls(".");
-    else
-        while (--ac) {
-            printf("%s:\n", *++av);
-            do_ls(*av);
+    else 
+    {
+        for (int i = 1; i < ac; i++)
+        {
+            errno = 0;
+            if ((statrst = lstat(av[i], &finfo)) != -1)
+            {
+                if (S_ISDIR(finfo.st_mode)) // dir
+                {
+                    printf("%s:\n", av[i]);
+                    do_dir_ls(av[i]);
+                }
+                else
+                {
+                    show_file_info(av[i], &finfo); // r file
+                }
+            }
+            if (statrst && errno)
+            {
+                fprintf(stderr, "%s: %s\n", av[0], strerror(errno));
+            }
         }
+    }
 }
-
+    
 int cmp(const void *s1, const void *s2)
 {
     return strcmp(*(const char **)s1, *(const char **)s2);
 }
 
-void do_ls(char dirname[])
+void do_dir_ls(char dirname[])
 {
     DIR *dir_ptr;
     struct dirent *direntp;
     int fileidx = 0;
 
     if ((dir_ptr = opendir(dirname)) == NULL)
+    {
         fprintf(stderr, "ls: cannot open %s\n", dirname);
+    }
     else
     {
         while ((direntp = readdir(dir_ptr)) != NULL)
