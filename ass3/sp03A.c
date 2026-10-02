@@ -7,9 +7,10 @@
 #include <pwd.h>
 #include <grp.h>
 #include <errno.h>
+#include <fcntl.h>
 
 void do_ls(char[]);
-void dostat(char *);
+void dostat(DIR *dir_ptr, char *filename);
 void show_file_info(char *, struct stat *);
 void mode_to_letters(int, char[]);
 char *uid_to_name(uid_t);
@@ -37,18 +38,16 @@ void do_ls(char dirname[])
     else
     {
         while ((direntp = readdir(dir_ptr)) != NULL)
-            dostat(direntp->d_name);
+            dostat(dir_ptr, direntp->d_name);
         closedir(dir_ptr);
     }
 }
 
-void dostat(char *filename)
+void dostat(DIR *dir_ptr, char *filename)
 {
     struct stat info;
-    char pathbuf[100];
-
-
-    if (lstat(filename, &info) == -1)   
+    
+    if (fstatat(dirfd(dir_ptr), filename, &info, AT_SYMLINK_NOFOLLOW) == -1)   
         fprintf(stderr, "error reading: %s : %s\n", filename, strerror(errno));          
     else                                  
         show_file_info(filename, &info);
