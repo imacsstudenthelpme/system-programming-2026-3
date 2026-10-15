@@ -10,142 +10,179 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <unistd.h>
 
-void do_dir_ls();
-int dostat(DIR *, char *, struct stat *);
-void show_file_info(char *, struct stat *);
+int do_dir_ls(char[], int *);
+int get_filenames(DIR *, char ***, int *);
+int dostat(DIR *, char *);
+void show_file_info(char *, struct stat *, int);
 void mode_to_letters(int, char[]);
 char *uid_to_name(uid_t);
 char *gid_to_name(gid_t);
-char *filenames[SHRT_MAX + 1];
-char *stack[SHRT_MAX + 1];
-int top = -1;
+char *join_path(char[], char[]);
 
-void push(char *filename)
-{
-    if (top >= SHRT_MAX + 1)
-    {
-        fprintf(stderr, "stack overflow");
-        return;
-    }
-    stack[++top] = filename;
-}
-
-char *pop()
-{
-    if (top < 0)
-    {
-        fprintf(stderr, "stack underflow");
-        return NULL;
-    }
-    return stack[top--];
-}
-
-// ls -l : main -> do_ls -> dostat -> show_file_info
+// ls -alR : main -> do_dir_ls -> dostat -> show_file_info
 int main(int ac, char *av[])
 {
     struct stat finfo;
-    int statrst = 0;
+    int printed_dir = 0;
+    int status = 0;
 
     if (ac == 1)
-        do_dir_ls();
-    else 
+        return do_dir_ls(".", &printed_dir);
+
+    for (int i = 1; i < ac; i++)
     {
-        for (int i = 1; i < ac; i++)
+        if (lstat(av[i], &finfo) == -1)
         {
-            errno = 0;
-            if ((statrst = lstat(av[i], &finfo)) != -1)
-            {
-                if (S_ISDIR(finfo.st_mode)) // dir
-                {
-                    printf("%s:\n", av[i]);
-                    push(av[i]);
-                    do_dir_ls();
-                }
-//no need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shit
-//no need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shit
-                else // no need of fucking DFS type shit
-                {
-                    show_file_info(av[i], &finfo); // r file
-                }
-            }
-            if (statrst && errno)
-            {
-                fprintf(stderr, "%s: %s\n", av[0], strerror(errno));
-            }
+            fprintf(stderr, "%s: %s\n", av[0], strerror(errno));
+            status = 1;
         }
+        else if (S_ISDIR(finfo.st_mode))
+        {
+            if (do_dir_ls(av[i], &printed_dir) != 0)
+                status = 1;
+        }
+        else
+            show_file_info(av[i], &finfo, AT_FDCWD);
     }
+
+    return status;
 }
-    
+
 int cmp(const void *s1, const void *s2)
 {
     return strcmp(*(const char **)s1, *(const char **)s2);
 }
-char *tempS[SHRT_MAX+1];
-int t=-1;
 
-void do_dir_ls()
+int get_filenames(DIR *dir_ptr, char ***filenames, int *fileidx)
 {
-    DIR *dir_ptr;
     struct dirent *direntp;
-    struct stat info;
-    int fileidx = 0;
-    int isdir = 0;
-    char *dirname;
+    char **temp;
+    int capacity = 0;
 
-    if (top <= -1)
-        return;
-        
-    dirname = pop();
-    printf("pop: %s\n", dirname);
-    if ((dir_ptr = opendir(dirname)) == NULL)
+    errno = 0;
+    while ((direntp = readdir(dir_ptr)) != NULL)
     {
-        fprintf(stderr, "ls: cannot open %s : %s\n", dirname,strerror(errno));
-    }
-    else
-    {
-        while ((direntp = readdir(dir_ptr)) != NULL)
-            filenames[fileidx++] = strdup(direntp->d_name);
-        qsort(filenames, (size_t)(fileidx), sizeof(char *), cmp);
-        for (int i = 0; i < fileidx; i++)
+        if (*fileidx == capacity)
         {
-            if (dostat(dir_ptr, filenames[i], &info))
+            capacity += 10;
+            temp = realloc(*filenames, capacity * sizeof(char *));
+            if (temp == NULL)
             {
-                printf("filename %s: ", filenames[i]);
-                tempS[++t] = filenames[i];
+                perror("realloc");
+                return 1;
             }
+            *filenames = temp;
         }
-        for (int i = t; i >= 0; i--)
-        {
-            push(tempS[i]);
-            printf("pushed : %s\n", tempS[i]);
-        }
-        while (t >= 0)
-        {
-            
-            do_dir_ls();
-            t--;
-        }
-        closedir(dir_ptr);
-    }
-}
 
-int dostat(DIR *dir_ptr, char *filename, struct stat *info)
-{
-    if (fstatat(dirfd(dir_ptr), filename, info, AT_SYMLINK_NOFOLLOW) == -1)   
-        fprintf(stderr, "error reading: %s : %s\n", filename, strerror(errno));          
-    else
-    {
-        show_file_info(filename, info);
-        if (S_ISDIR(info->st_mode) && strcmp(filename, ".") && strcmp(filename, ".."))
+        (*filenames)[*fileidx] = strdup(direntp->d_name);
+        if ((*filenames)[*fileidx] == NULL)
+        {
+            perror("strdup");
             return 1;
+        }
+        (*fileidx)++;
+        errno = 0;
     }
+
+    if (errno != 0)
+    {
+        fprintf(stderr, "error reading directory : %s\n", strerror(errno));
+        return 1;
+    }
+
+    qsort(*filenames, (size_t)(*fileidx), sizeof(char *), cmp);
     return 0;
 }
 
-void show_file_info(char *filename, struct stat *info_p)
+int do_dir_ls(char dirname[], int *printed_dir)
+{
+    DIR *dir_ptr;
+    struct stat info;
+    char **filenames = NULL;
+    char *path;
+    int fileidx = 0;
+    int status = 0;
+
+    if ((dir_ptr = opendir(dirname)) == NULL)
+    {
+        fprintf(stderr, "ls: cannot open %s : %s\n", dirname, strerror(errno));
+        return 1;
+    }
+
+    if (*printed_dir)
+        printf("\n");
+    printf("%s:\n", dirname);
+    *printed_dir = 1;
+
+    if (get_filenames(dir_ptr, &filenames, &fileidx) == 0)
+    {
+        for (int i = 0; i < fileidx; i++)
+        {
+            if (dostat(dir_ptr, filenames[i]) != 0)
+                status = 1;
+        }
+
+        for (int i = 0; i < fileidx; i++)
+        {
+            if (strcmp(filenames[i], ".") == 0 || strcmp(filenames[i], "..") == 0)
+                continue;
+
+            if (fstatat(dirfd(dir_ptr), filenames[i], &info, AT_SYMLINK_NOFOLLOW) == -1)
+            {
+                fprintf(stderr, "error reading: %s : %s\n", filenames[i], strerror(errno));
+                status = 1;
+                continue;
+            }
+            if (!S_ISDIR(info.st_mode))
+                continue;
+
+            path = join_path(dirname, filenames[i]);
+            if (path == NULL)
+            {
+                perror("malloc");
+                status = 1;
+                continue;
+            }
+            if (do_dir_ls(path, printed_dir) != 0)
+                status = 1;
+            free(path);
+        }
+    }
+    else
+        status = 1;
+
+    for (int i = 0; i < fileidx; i++)
+        free(filenames[i]);
+    free(filenames);
+    if (closedir(dir_ptr) == -1)
+    {
+        fprintf(stderr, "%s: %s\n", dirname, strerror(errno));
+        status = 1;
+    }
+    return status;
+}
+
+int dostat(DIR *dir_ptr, char *filename)
+{
+    struct stat info;
+
+    if (fstatat(dirfd(dir_ptr), filename, &info, AT_SYMLINK_NOFOLLOW) == -1)
+    {
+        fprintf(stderr, "error reading: %s : %s\n", filename, strerror(errno));
+        return 1;
+    }
+
+    show_file_info(filename, &info, dirfd(dir_ptr));
+    return 0;
+}
+
+void show_file_info(char *filename, struct stat *info_p, int dir_fd)
 {
     char modestr[11];
+    char target[PATH_MAX + 1];
+    ssize_t target_len;
 
     mode_to_letters(info_p->st_mode, modestr);
 
@@ -153,9 +190,20 @@ void show_file_info(char *filename, struct stat *info_p)
     printf("%4d ", (int) info_p->st_nlink);
     printf("%-8s ", uid_to_name(info_p->st_uid));
     printf("%-8s ", gid_to_name(info_p->st_gid));
-    printf("%8ld ", (long) info_p->st_size);
+    printf("%8lld ", (long long) info_p->st_size);
     printf("%.12s ", 4 + ctime(&info_p->st_mtime));
-    printf("%s\n", filename);
+    printf("%s", filename);
+
+    if (S_ISLNK(info_p->st_mode))
+    {
+        target_len = readlinkat(dir_fd, filename, target, sizeof(target) - 1);
+        if (target_len != -1)
+        {
+            target[target_len] = '\0';
+            printf(" -> %s", target);
+        }
+    }
+    printf("\n");
 }
 
 void mode_to_letters(int mode, char str[])
@@ -206,4 +254,18 @@ char *gid_to_name(gid_t gid)
     }
     else
         return grp_ptr->gr_name;
+}
+
+char *join_path(char dirname[], char filename[])
+{
+    size_t length = strlen(dirname) + strlen(filename) + 2;
+    char *path = malloc(length);
+
+    if (path != NULL)
+    {
+        strcpy(path, dirname);
+        strcat(path, "/");
+        strcat(path, filename);
+    }
+    return path;
 }
