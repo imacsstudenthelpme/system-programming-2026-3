@@ -11,14 +11,14 @@
 #include <stdlib.h>
 #include <limits.h>
 
-void do_ls(char[]);
-void dostat(DIR *dir_ptr, char *filename);
+void do_dir_ls();
+int dostat(DIR *, char *, struct stat *);
 void show_file_info(char *, struct stat *);
 void mode_to_letters(int, char[]);
 char *uid_to_name(uid_t);
 char *gid_to_name(gid_t);
 char *filenames[SHRT_MAX + 1];
-char stack[SHRT_MAX + 1];
+char *stack[SHRT_MAX + 1];
 int top = -1;
 
 void push(char *filename)
@@ -48,7 +48,7 @@ int main(int ac, char *av[])
     int statrst = 0;
 
     if (ac == 1)
-        do_ls(".");
+        do_dir_ls();
     else 
     {
         for (int i = 1; i < ac; i++)
@@ -59,9 +59,12 @@ int main(int ac, char *av[])
                 if (S_ISDIR(finfo.st_mode)) // dir
                 {
                     printf("%s:\n", av[i]);
-                    do_dir_ls(av[i]);
+                    push(av[i]);
+                    do_dir_ls();
                 }
-                else
+//no need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shit
+//no need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shitno need of fucking DFS type shit
+                else // no need of fucking DFS type shit
                 {
                     show_file_info(av[i], &finfo); // r file
                 }
@@ -78,16 +81,26 @@ int cmp(const void *s1, const void *s2)
 {
     return strcmp(*(const char **)s1, *(const char **)s2);
 }
+char *tempS[SHRT_MAX+1];
+int t=-1;
 
-void do_dir_ls(char dirname[])
+void do_dir_ls()
 {
     DIR *dir_ptr;
     struct dirent *direntp;
+    struct stat info;
     int fileidx = 0;
+    int isdir = 0;
+    char *dirname;
 
+    if (top <= -1)
+        return;
+        
+    dirname = pop();
+    printf("pop: %s\n", dirname);
     if ((dir_ptr = opendir(dirname)) == NULL)
     {
-        fprintf(stderr, "ls: cannot open %s\n", dirname);
+        fprintf(stderr, "ls: cannot open %s : %s\n", dirname,strerror(errno));
     }
     else
     {
@@ -95,19 +108,39 @@ void do_dir_ls(char dirname[])
             filenames[fileidx++] = strdup(direntp->d_name);
         qsort(filenames, (size_t)(fileidx), sizeof(char *), cmp);
         for (int i = 0; i < fileidx; i++)
-            dostat(dir_ptr, filenames[i]);
+        {
+            if (dostat(dir_ptr, filenames[i], &info))
+            {
+                printf("filename %s: ", filenames[i]);
+                tempS[++t] = filenames[i];
+            }
+        }
+        for (int i = t; i >= 0; i--)
+        {
+            push(tempS[i]);
+            printf("pushed : %s\n", tempS[i]);
+        }
+        while (t >= 0)
+        {
+            
+            do_dir_ls();
+            t--;
+        }
         closedir(dir_ptr);
     }
 }
 
-void dostat(DIR *dir_ptr, char *filename)
+int dostat(DIR *dir_ptr, char *filename, struct stat *info)
 {
-    struct stat info;
-    
-    if (fstatat(dirfd(dir_ptr), filename, &info, AT_SYMLINK_NOFOLLOW) == -1)   
+    if (fstatat(dirfd(dir_ptr), filename, info, AT_SYMLINK_NOFOLLOW) == -1)   
         fprintf(stderr, "error reading: %s : %s\n", filename, strerror(errno));          
-    else                                  
-        show_file_info(filename, &info);
+    else
+    {
+        show_file_info(filename, info);
+        if (S_ISDIR(info->st_mode) && strcmp(filename, ".") && strcmp(filename, ".."))
+            return 1;
+    }
+    return 0;
 }
 
 void show_file_info(char *filename, struct stat *info_p)
