@@ -1,0 +1,21 @@
+Compile: PASS
+
+$ ./sp04A 755 tree
+tree/sub/file
+tree/sub
+tree
+Recursive chmod and symlink check: PASS
+
+$ ./sp04A 640 outside
+outside
+Single file check: PASS
+
+$ ./sp04A nope outside
+nope: invalid octal mode
+Invalid mode check: PASS (nonzero exit)
+
+$ ./sp04A 600 missing
+missing: No such file or directory
+Missing file check: PASS (nonzero exit)
+
+All tests passed.

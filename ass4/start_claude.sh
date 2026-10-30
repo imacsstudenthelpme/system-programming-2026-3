@@ -1,0 +1,1 @@
+claude "hello this is shell test"
